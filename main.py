@@ -25,10 +25,12 @@ if __name__ == '__main__':
     el = [Edge(vl[1-1],vl[2-1],(4,12)),Edge(vl[2-1],vl[3-1],(9,15)),Edge(vl[2-1],vl[4-1],(6,7)),Edge(vl[4-1],vl[1-1],(7,13))]
     g = Graph(vl,el)
     avl,ael = g.augment()
+    print(avl,ael)
     G = networkxPackage(avl,ael)
-    graphPlot(G)
+    #graphPlot(G)
     # minimum cut
     snodes,tnodes = min_cut(G)[1]
+    print(snodes,tnodes)
     # filter node 
     sf = filter_nodes(snodes)
     tf = filter_nodes(tnodes)
