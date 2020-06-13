@@ -1,6 +1,7 @@
 '''
 __author__ = 'dai'
 '''
+from functools import reduce
 
 class Vertex():
     def __init__(self,nid):
@@ -41,10 +42,29 @@ class Edge():
 
 class Graph():
     def __init__(self,vlist,elist):
-        self.vdict = {}
         self.elist = elist
-        for i in vlist:
+        self.vlist = vlist
+        self._updateVDict()
+
+    def addEdge(self,e):
+        self.elist.append(e)
+
+    def delEdge(self,e):
+        self.elist.remove(e)
+
+    def _updateVDict(self):
+        self.vdict = {}
+        for i in self.vlist:
             self.vdict[i.nid] = i
+
+    def addVertex(self,v):
+        self.vlist.append(v)
+        self._updateVDict()
+
+    def delVertex(self,nid):
+        v = self.vdict.get(nid)
+        self.vlist.remove(v)
+        self._updateVDict()
 
     def capGraph(self):
         eadj = {}
@@ -85,9 +105,10 @@ class Dinic():
                     paths.append(i)
                     return paths
 
-                paths = self._dfs(layers,eadj,i,target,current + 1)
+                paths = self._dfs(layers,eadj,i,target,current + 1,paths)
                 if(paths != None):
                     paths.append(i)
+                    return paths
         return paths
 
     def LayerNetwork(self,root):
@@ -119,7 +140,7 @@ class Dinic():
             edges = []
             inverse_edges = []
             edges_flow = []
-            #print(augmentpath)
+            #print("augmentpath:",augmentpath)
             for i in range(len(augmentpath) - 1):
                 e = edge_dict.get(augmentpath[i]+","+augmentpath[i+1])
                 if(e != None):
@@ -129,7 +150,7 @@ class Dinic():
                     inverse_edges.append(e)
 
                 edges_flow.append(eadj.get(augmentpath[i]+","+augmentpath[i+1]))
-            #print(edges_flow)
+            #print("edges_flow",edges_flow)
             minflow = reduce(lambda x,y:min(x,y),edges_flow)
             #print(minflow)
             for i in edges:
@@ -163,10 +184,11 @@ class Dinic():
         edge = edge_dict.get(uid+","+vid) if(edge_dict.get(uid+","+vid)!= None) else edge_dict.get(vid+","+uid)
         if((edge.residual != 0) and (edge.inverseResidual != 0)):
             edge.increaseCapacity(cap)
-            return self.S_set,self.T_set
         else:
             edge.increaseCapacity(cap)
-            return self.Augment()
+            self.S_set,self.T_set = self.Augment()
+
+        return self.S_set,self.T_set
 
     def decreaseCapacity(self,uid,vid,cap):
         vdict,eadj,edge_dict = self.g.residualGraph()
@@ -185,17 +207,29 @@ class Dinic():
         else:
             pass
 
-        return self.Augment()
+        self.S_set,self.T_set = self.Augment()
+        return self.S_set,self.T_set
 
     def _inverseAugmentPaths(self,u,v,cap):
         while(cap > 0):
             vdict,eadj,edge_dict = self.g.residualGraph()
-            eadj.pop(u+","+v)
-            uspath = self._dfs(self.LayerNetwork(u),eadj,u,self.S)
+            # try to remove u,v in eadj for optimaize runtime, TO-DO
+            if(u == self.S):
+                uspath = []
+            else:
+                uspath = self._dfs(self.LayerNetwork(u),eadj,u,self.S)
+            #print("layers-"+u+":",self.LayerNetwork(u))
+            #print(eadj)
+            #print(eadj["3,4"],eadj["4,s"])
             uspath.append(u)
             uspath = uspath[::-1]
+            #print("uspath:",u,uspath)
 
-            tvpath = self._dfs(self.LayerNetwork(self.T),eadj,self.T,v)
+            if(v == self.T):
+                tvpath = []
+            else:
+                tvpath = self._dfs(self.LayerNetwork(self.T),eadj,self.T,v)
+            #print("tvpath:",tvpath)
             tvpath.append(self.T)
             tvpath = tvpath[::-1]
 
@@ -227,18 +261,52 @@ class Dinic():
 
     def addEdge(self,uid,vid,cap):
         e = Edge(uid,vid,cap)
-
-        pass
+        self.g.addEdge(e)
+        # uid and vid are not in the same set
+        if(not(set(self.S_set).issuperset({uid,vid}) or set(self.T_set).issuperset({uid,vid}))):
+            self.S_set,self.T_set = self.Augment()
+        return self.S_set,self.T_set
 
     def delEdge(self,uid,vid):
-        pass
-    
+        vdict,eadj,edge_dict = self.g.residualGraph()
+        edge = edge_dict.get(uid+","+vid) if(edge_dict.get(uid+","+vid)!= None) else edge_dict.get(vid+","+uid)
+        self.S_set,self.T_set = self.decreaseCapacity(uid,vid,edge.capacity)
+        self.g.delEdge(edge)
+        return self.S_set,self.T_set
+
+    def _checkEdgeSTSet(self,edges):
+        Flag = False
+        for i in edges:
+            if(not(set(self.S_set).issuperset({i.uid,i.vid}) or set(self.T_set).issuperset({i.uid,i.vid}))):
+                Flag = True
+        return Flag
+
     def addVertex(self,nid,edges):
         v = Vertex(nid)
         edges = [Edge(u,v,c) for u,v,c in edges]
+        for i in edges:
+            self.g.addEdge(i)
+        self.g.addVertex(v)
+        # edge across S_set and T_set, need to re-min-cut
+        if(self._checkEdgeSTSet(edges)):
+            self.S_set,self.T_set = self.Augment()
+        return self.S_set,self.T_set
+
+    def _findEdges(self,nid):
+        import re
+        vdict,eadj,edge_dict = self.g.residualGraph()
+        edges = []
+        for k,v in edge_dict.items():
+            if((re.match(f"^{nid},",k) or re.match(f",{nid}$",k))):
+                edges.append(v)
+        return edges
 
     def delVertex(self,nid):
-        pass
+        edges = self._findEdges(nid)
+        for e in edges:
+            self.delEdge(e.uid,e.vid)
+        self.g.delVertex(nid)
+        return self.S_set,self.T_set
                
 if __name__ == '__main__':
     vlist = [Vertex("s"),Vertex("t"),Vertex("1"),Vertex("2"),Vertex("3"),Vertex("4")]
@@ -246,19 +314,25 @@ if __name__ == '__main__':
     dinic = Dinic(vlist,elist)
     print(dinic.Augment())
     print(dinic.increaseCapacity("4","1",5))
-    print(dinic.increaseCapacity("s","4",5))
+    #print(dinic.increaseCapacity("s","4",5))
     _,eadj1,_ = dinic.g.residualGraph()
     #print(eadj1)
     print(dinic.decreaseCapacity("4","1",5))
     _,eadj2,_ = dinic.g.residualGraph()
+    #print(dinic.addEdge("4","3",5))
+    #print(dinic.g.residualGraph())
+    #print(dinic.delEdge("t","3"))
+    print(dinic.addVertex("5",[("4","5",4),("3","5",1)]))
+    print(dinic.delVertex("5"))
 
     vlist2 = [Vertex("s"),Vertex("t"),Vertex("1"),Vertex("2"),Vertex("3"),Vertex("4")]
-    elist2 = [Edge("s","4",16),Edge("4","1",6),Edge("1","2",8),Edge("2","t",7),Edge("1","t",2),Edge("3","t",8),Edge("2","4",1),Edge("2","3",6)]
-    dinic2 = Dinic(vlist,elist)
+    elist2 = [Edge("s","4",11),Edge("4","1",6),Edge("1","2",8),Edge("2","t",7),Edge("1","t",2),Edge("3","t",8),Edge("2","4",1),Edge("2","3",6)]
+    dinic2 = Dinic(vlist2,elist2)
     print(dinic2.Augment())
     _,eadj3,_ = dinic2.g.residualGraph()
 
-    #print(eadj3)
+    print(eadj2)
+    print(eadj3)
     print(eadj2 == eadj3)
     #print(dinic.g.residualGraph())
 
